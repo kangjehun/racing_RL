@@ -1,2 +1,3 @@
 jehun_dreamer/src
-!jehun_dreamer/logs/*
+jehun_dreamer/logs/**/
+jehun_dreamer/__pycache__/
