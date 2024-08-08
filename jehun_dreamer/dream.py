@@ -11,6 +11,11 @@ import os
 import numpy as np
 import time
 import yaml
+import logging
+import sys
+
+import wrappers as wrappers
+import callbacks as callbacks
 
 def define_config():
     """
@@ -80,6 +85,52 @@ def define_config():
     config.expl_min = 0.3
     return config
 
+def make_train_env(config, writer, datadir, gui=False):
+    env = make_base_env(config, gui)
+    if env.n_agents > 1:
+        env = wrappers.FixedResetMode(env, mode='random_ball')  # sample in random points close within a ball
+    else:
+        env = wrappers.FixedResetMode(env, mode='random')
+    env = wrappers.TimeLimit(env, config.time_limit_train / config.action_repeat)
+    # storing and summary
+    callback_list = []
+    callback_list.append(lambda episodes: callbacks.save_episodes(datadir, episodes))
+    callback_list.append(lambda episodes: callbacks.summarize_episode(episodes, config, datadir, writer, 'train'))
+    env = wrappers.Collect(env, callback_list, config.precision)
+    return env
+
+def make_test_env(config, writer, datadir, gui=False):
+    env = make_base_env(config, gui)
+    env = wrappers.FixedResetMode(env, mode='grid')
+    env = wrappers.TimeLimit(env, config.time_limit_test / config.action_repeat)
+    # rendering
+    render_callbacks = []
+    render_callbacks.append(lambda videos: callbacks.save_videos(videos, config, datadir))
+    env = wrappers.Render(env, render_callbacks)
+    # summary
+    callback_list = []
+    callback_list.append(
+        lambda episodes: callbacks.summarize_episode(episodes, config, datadir, writer, 'test'))
+    env = wrappers.Collect(env, callback_list, config.precision)
+    return env
+
+def make_base_env(config, gui=False):
+    env = wrappers.RaceCarBaseEnv(track=config.track, task=config.task, rendering=gui)
+    env = wrappers.RaceCarWrapper(env, agent_id='A')
+    env = wrappers.ActionRepeat(env, config.action_repeat)
+    env = wrappers.ReduceActionSpace(env, low=[0.005, -1.0], high=[1.0, 1.0])
+    env = wrappers.OccupancyMapObs(env)
+    return env
+
+def set_logging(config):
+    # Redirect std error to file. It is useful when running experiments on cluster.
+    level = logging.WARNING
+    logging.basicConfig(level=level, format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
+                        filename=f"{config.logdir}/stderr.txt", filemode='a')
+    stderr_logger = logging.getLogger('STDERR')
+    sl = tools.StreamToLogger(stderr_logger, level)
+    sys.stderr = sl
+
 def create_log_dirs(config):
     # create filename
     prefix = f"{config.track}_dreamer_{config.task}"
@@ -113,9 +164,26 @@ def setup_experiments(config):
 
 def main(config):
     # Setup logging
+    setup_experiments(config)
     config.steps = int(config.steps)
-    config.logdir, datadir, cp_dir = create_log_dirs(config)
-    
+    config.logdir, datadir, checkpoint_dir = create_log_dirs(config)
+    # set_logging(config)
+    writer = tf.summary.create_file_writer(str(config.logdir), max_queue=1000, flush_millis=20000)
+    writer.set_as_default()
+    print(f"[Info] Logdir {config.logdir}")
+    # Create environments
+    train_env = make_train_env(config, writer, datadir, gui=False)
+    test_env  = make_test_env(config, writer, datadir, gui=False)
+    agent_ids = train_env.agent_ids
+    actspace = train_env.action_space
+    obspace = train_env.observation_space
+
+    # Prefill phase
+
+    # Initialize Dreamer model
+
+    # Train and Evaluate the agent over the simulation process
+
 if __name__ == '__main__':
     print("Initializing dream.py...")
     parser = argparse.ArgumentParser(description='Jehun Dreamer')
