@@ -17,6 +17,8 @@ import sys
 import wrappers as wrappers
 import callbacks as callbacks
 
+from agents.gap_follower import GapFollower
+
 def define_config():
     """
     Default definition of command-line arguments.
@@ -179,6 +181,26 @@ def main(config):
     obspace = train_env.observation_space
 
     # Prefill phase
+    step = tools.count_steps(datadir, config)
+    prefill = max(0, config.prefill - step)
+    print(f'[Info] Prefill dataset (strategy={config.prefill_agent}) with {prefill} steps.')
+    # Choose prefill strategy.
+    if config.prefill_agent == 'random':
+        # Prefill strategy: random actions
+        random_agent = lambda o, d, s: ([train_env.action_space[agent_ids[0]].sample()], None)
+        agents = [random_agent for _ in range(train_env.n_agents)]
+    elif config.prefill_agent == 'gap_follower':
+        # Prefil strategy: FTG with a fixed low speed (negative value because of shifting in 0,1)
+        ftg = GapFollower()
+        fix_speed = -0.96
+        gap_follower_agent = lambda o, d, s: ([np.clip(np.array([fix_speed, ftg.action(o)[-1]]), -1, +1)], None)
+        agents = [gap_follower_agent for _ in range(train_env.n_agents)]
+    else:
+        raise NotImplementedError(f'prefill agent {config.prefill_agent} not implemented')
+    # Run prefill simulations
+    tools.simulate(agents, train_env, config, datadir, writer, prefix='prefill',
+                   steps=prefill / config.action_repeat, agents_ids = agent_ids)
+    writer.flush()
 
     # Initialize Dreamer model
 

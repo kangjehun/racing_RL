@@ -67,7 +67,7 @@ class RaceCarWrapper:
         return obs, reward, done, info
     
     def reset(self, **kwargs):
-        obs = self._env.reset(**kwargs)
+        obs, _ = self._env.reset(**kwargs)
         for agent_id in self.agent_ids:
             obs[agent_id]['speed'] = 0.0
             if 'low_res_camera' in obs[agent_id]:
@@ -169,7 +169,8 @@ class FixedResetMode:
         self._mode = mode
 
     def reset(self):
-        return self._env.reset(mode=self._mode)
+        options = {'mode': self._mode} # Wrap the mode in a dictionary
+        return self._env.reset(options=options)
 
     def __getattr__(self, name):
         return getattr(self._env, name)
@@ -196,6 +197,48 @@ class TimeLimit:
     def reset(self):
         self._step = 0
         return self._env.reset()
+
+class Render:
+
+    def __init__(self, env, callbacks=None, follow_view=False):
+        self._env = env
+        self._callbacks = callbacks or ()
+        self._follow_view = follow_view
+        self._reset_videos_dict()
+    
+    def _reset_videos_dict(self):
+        self._videos = {'birds_eye-A': []} # by default: store birds-eye view of first agent
+        # ===================== Obsolete ===================== [DEBUG]
+        # if self._follow_view:
+        #     for agent_id in self._env.agent_ids:
+        #         self._videos[f'follow-{agent_id}'] = []
+        # ====================================================        
+    
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+    
+    def step(self, action):
+        obss, reward, dones, info = self._env.step(action)
+        # ===================== Obsolete ===================== [DEBUG]
+        # for k in self._videos.keys():
+        #     mode, agent = k.split('-')
+        #     frame = self._env.render(mode=mode, agent=agent)
+        #     self._videos[k].append(frame)
+        # ====================================================
+        for k in self._videos.keys():
+            frame = self._env.render()
+            self._videos[k].append(frame)
+        if any(dones.values()):
+            for callback in self._callbacks:
+                callback(self._videos)
+        return obss, reward, dones, info
+    
+    def reset(self):
+        obs = self._env.reset()
+        for k in self._videos.keys():
+            frame = self._env.render()
+            self._videos[k] = [frame]
+        return obs
 
 class Collect:
 
@@ -250,47 +293,5 @@ class Collect:
         else:
             raise NotImplementedError(value.dtype)
         return value.astype(dtype)
-
-class Render:
-
-    def __init__(self, env, callbacks=None, follow_view=False):
-        self._env = env
-        self._callbacks = callbacks or ()
-        self._follow_view = follow_view
-        self._reset_videos_dict()
-    
-    def _reset_videos_dict(self):
-        self._videos = {'birds_eye-A': []} # by default: store birds-eye view of first agent
-        # ===================== Obsolete ===================== [DEBUG]
-        # if self._follow_view:
-        #     for agent_id in self._env.agent_ids:
-        #         self._videos[f'follow-{agent_id}'] = []
-        # ====================================================        
-    
-    def __getattr__(self, name):
-        return getattr(self._env, name)
-    
-    def step(self, action):
-        obss, reward, dones, info = self._env.step(action)
-        # ===================== Obsolete ===================== [DEBUG]
-        # for k in self._videos.keys():
-        #     mode, agent = k.split('-')
-        #     frame = self._env.render(mode=mode, agent=agent)
-        #     self._videos[k].append(frame)
-        # ====================================================
-        for k in self._videos.keys():
-            frame = self._env.render()
-            self._videos[k].append(frame)
-        if any(dones.values()):
-            for callback in self._callbacks:
-                callback(self._videos)
-        return obss, reward, dones, info
-    
-    def reset(self):
-        obs = self._env.reset()
-        for k in self._videos.keys():
-            frame = self._env.render()
-            self._videos[k] = [frame]
-        return obs
 
             
