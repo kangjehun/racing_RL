@@ -6,6 +6,7 @@ import numpy as np
 import tools as tools
 import tensorflow as tf
 import imageio
+import time
 
 def save_episodes(directory, episodes):
     directory = pathlib.Path(directory).expanduser()
@@ -61,4 +62,3 @@ def save_videos(videos, config, datadir):
         for image in video:
             writer.append_data(image)
         writer.close()
-    

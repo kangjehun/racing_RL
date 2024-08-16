@@ -135,6 +135,7 @@ class OccupancyMapObs:
         spaces = self._env.observation_space.spaces
         assert 'lidar_occupancy' not in spaces
         spaces['lidar_occupancy'] = gym.spaces.Box(-np.inf, np.inf, shape=self._occupancy_map_size, dtype=np.uint8)
+        # [DEBUG] There is no _occupancy_map_size attribute in the original code! -> _map_size??
         return gym.spaces.Dict(spaces)
     
     def step(self, action):

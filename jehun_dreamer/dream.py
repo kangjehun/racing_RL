@@ -19,6 +19,15 @@ import callbacks as callbacks
 
 from agents.gap_follower import GapFollower
 
+import functools
+
+from models import Dreamer
+
+tf.get_logger().setLevel('ERROR')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['MUJOCO_GL'] = 'egl'
+sys.path.append(str(pathlib.Path(__file__).parent))
+
 def define_config():
     """
     Default definition of command-line arguments.
@@ -45,7 +54,7 @@ def define_config():
     config.time_limit_train = 2000
     config.time_limit_test = 4000
     config.prefill_agent = 'gap_follower'
-    config.prefill = 5000
+    config.prefill = 5000 # 5000 [DEBUG]
     config.eval_noise = 0.0
     config.clip_rewards = 'none'
     config.clip_rewards_min = -1
@@ -143,7 +152,7 @@ def create_log_dirs(config):
     logdir = pathlib.Path(f'{config.logdir}/{prefix}_{model_archs}_{params}_{suffix}')
     datadir = logdir / 'episodes'               # where storing the episodes as np files
     checkpoint_dir = logdir / 'checkpoints'     # where storing the model checkpoints
-    best_checkpoint_dir = logdir / 'best'       # where storing the best model checkpoints
+    best_checkpoint_dir = checkpoint_dir / 'best'       # where storing the best model checkpoints
     best_checkpoint_dir.mkdir(parents=True, exist_ok=True)
     # save config
     with open(logdir / 'config.yaml', 'w') as file:
@@ -178,7 +187,7 @@ def main(config):
     test_env  = make_test_env(config, writer, datadir, gui=False)
     agent_ids = train_env.agent_ids
     actspace = train_env.action_space
-    obspace = train_env.observation_space
+    obsspace = train_env.observation_space
 
     # Prefill phase
     step = tools.count_steps(datadir, config)
@@ -203,8 +212,50 @@ def main(config):
     writer.flush()
 
     # Initialize Dreamer model
+    step = tools.count_steps(datadir, config)
+    agent = Dreamer(config, datadir, actspace, obsspace, writer)
+
+    # Resume last checkpoint (checkpoints pattern `{checkpoint_dir}/{step}.pkl`
+    checkpoints = sorted(checkpoint_dir.glob('*pkl'), key=lambda f: int(f.name.split('.')[0]))
+    if len(checkpoints):
+        try:
+            agent.load(checkpoints[-1])
+            print('Load checkpoint.')
+        except:
+            raise Exception(f"the resume of checkpoint {checkpoints[-1]} failed")
 
     # Train and Evaluate the agent over the simulation process
+    print(f'[Info] Simulating agent for {config.steps - step} steps.')
+    simulation_state = None
+    best_test_return = 0.0      # for storing the best model so far
+    while step < config.steps:
+        # Evaluation phase
+        print('[Info] Start evaluation.')
+        eval_agent = functools.partial(agent, training=False)
+        eval_agents = [eval_agent for _ in range(train_env.n_agents)]  # for multi-agent compatibility
+        _, cum_reward = tools.simulate(eval_agents, test_env, config, datadir, writer, prefix='test',
+                                       episodes=config.eval_episodes, agents_ids=agent_ids)
+        writer.flush()
+        # Save best model
+        if cum_reward > best_test_return:
+            best_test_return = cum_reward
+            print(f'[Info] Found New Best Model: {best_test_return:.5f}')
+            
+            for model in [agent._encode, agent._dynamics, agent._decode, agent._reward, agent._actor]:
+                model.save(checkpoint_dir / 'best' / f'{model._name}.pkl')
+            agent.save(checkpoint_dir / 'best' / 'variables.pkl')  # store also the whole model
+        # Save regular checkpoint
+        step = tools.count_steps(datadir, config)
+        agent.save(checkpoint_dir / f'{step}.pkl')
+        # Training phase
+        print('[Info] Start collection.')
+        steps = config.eval_every // config.action_repeat       # compute the n steps until next evaluation
+        train_agent = functools.partial(agent, training=True)   # for multi-agent: only 1 agent is training
+        eval_agent = functools.partial(agent, training=False)   # the other ones are fixed in evaluation mode
+        training_agents = [train_agent] + [eval_agent for _ in range(train_env.n_agents - 1)]
+        simulation_state, _ = tools.simulate(training_agents, train_env, config, datadir, writer, prefix='train',
+                                             steps=steps, sim_state=simulation_state, agents_ids=agent_ids)
+        step = tools.count_steps(datadir, config)
 
 if __name__ == '__main__':
     print("Initializing dream.py...")

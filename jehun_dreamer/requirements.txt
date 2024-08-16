@@ -1,5 +1,5 @@
 tensorflow==2.12.0
-tensorflow_probability==0.22.1
+tensorflow_probability==0.20.0
 -e git+https://github.com/gonultasbu/racecar_gym-1.git@master#egg=racecar_gym
 dm-tree==0.1.8
 numpy==1.22.3
