@@ -299,6 +299,10 @@ class Dreamer(tools.Module):
                 action)
         raise NotImplementedError(self._c.expl)
     
+    def load(self, filename):
+        super().load(filename)
+        self._should_pretrain()
+    
 class ConvEncoder(tools.Module):
 
     def __init__(self, depth=32, act=tf.nn.relu, obs_type="image"):
